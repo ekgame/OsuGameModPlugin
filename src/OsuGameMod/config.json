@@ -1,0 +1,14 @@
+{
+    "info": {
+        "name": "osu!game Mod Utils",
+        "authors": [{
+            "name": "ekgame",
+            "discord_id": "90354442913742848",
+            "github_username": "ekgame",
+            "twitter_username": "ekgame_"
+        }],
+        "version": "1.0.0",
+        "description": "Utilities for moderating osu!game server."
+    },
+    "main": "index.js"
+}

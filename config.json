@@ -1,0 +1,6 @@
+{
+    "pluginsFolder": "../src",
+    "releaseFolder": "../release",
+    "copyToBD": false,
+    "addInstallScript": true
+  }

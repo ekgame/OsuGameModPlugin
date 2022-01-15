@@ -44,7 +44,7 @@ module.exports = (Plugin, Library) => {
 
                 // The custom moderation items should only be available for the configured server 
                 // and if you have the permissions to mute that user
-                if (guildId !== this.settings.guildId || !this.checkIfMuteItemExists(items)) {
+                if (guildId !== this.settings.guildId) {
                     return;
                 }
 

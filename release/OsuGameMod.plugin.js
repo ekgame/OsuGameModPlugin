@@ -136,16 +136,39 @@ module.exports = (() => {
 
             let reason = "";
             let duration = "14d";
+            let customDuration = "";
+
+            const customDurationTextbox = new Settings.Textbox(
+                "Custom duration",
+                "\"5m\" - 5 minutes, \"2h\" - 2 hours, \"7d\" - 7 days, etc.", 
+                customDuration, 
+                (e) => customDuration = e, 
+                {disabled: true}
+            );
 
             const element = Settings.SettingPanel.build(
                 () => {},
                 new Settings.Textbox("Reason", null, reason, (e) => reason = e),
-                new Settings.RadioGroup("Mute Duration", null, duration, [
+                new Settings.RadioGroup("Mute Duration", "Example", duration, [
                     { color: "#000000", value: "999y", name: "Indefinite", desc: "Racial slurs, streaming porn/hentai/gore, anything immediatly bannable."},
                     { color: "#FF0000", value: "14d", name: "14 Days", desc: "Ear rape, mic spam, hostile or aggressive behavior, sexism."},
                     { color: "#FF8000", value: "2d", name: "2 Days", desc: "Leave/Join spam, minor infractions."},
                     { color: "#FFFF00", value: "1h", name: "1 Hour", desc: "Excessive background noise, refusing to switch to push to talk."},
-                ], (e) => duration = e),
+                    { color: "#aaaaaa", value: "custom", name: "Custom", desc: "Mute goes brrr."},
+                ], (e) => {
+                    duration = e;
+
+                    const customDurationTextboxReact = this.getSettingReactElement(customDurationTextbox)
+                    customDurationTextboxReact.props.disabled = duration != 'custom';
+                    customDurationTextboxReact.forceUpdate();
+                    customDurationTextbox.getElement().style.display = duration == 'custom' ? 'block' : 'none';
+                    if (duration == 'custom') {
+                        setTimeout(() => {
+                            customDurationTextbox.getElement().querySelector('input').focus();
+                        }, 100);
+                    }
+                }),
+                customDurationTextbox,
             );
 
             Modals.showModal(`Mute and Warn: ${userIdentifier}`, ReactTools.createWrappedElement(element), {
@@ -154,18 +177,37 @@ module.exports = (() => {
                 size: Modals.ModalSizes.MEDIUM,
                 danger: true,
                 onConfirm: () => {
-                    if (!reason.trim()) {
-                        Modals.showAlertModal("Uh oh", "The reason can not be empty.");
-                        return;
+                    let actualDuration = duration == 'custom' ? customDuration : duration;
+                    actualDuration = actualDuration.trim();
+                    if (!this.isValidDuration(actualDuration)) {
+                        Modals.showAlertModal("Uh oh", "Invalid duration.");
+                        return false;
                     }
-                    this.sendMuteWarnDisconnect(userId, reason, duration);
+
+                    reason = reason.trim();
+                    if (!reason) {
+                        Modals.showAlertModal("Uh oh", "The reason can not be empty.");
+                        return false;
+                    }
+                    
+                    this.sendMuteWarnDisconnect(userId, reason, actualDuration);
                     console.log(`muting and warning: ${userIdentifier}, reason: ${reason}, duration: ${duration}`);
                 }
             });
 
             setTimeout(() => {
                 element.querySelector('input').focus();
+                customDurationTextbox.getElement().style.display = 'none';
             }, 100);
+        }
+
+        isValidDuration(duration) {
+            const regex = /^([\d]+[smhdwy]{1})+$/;
+            return regex.test(duration);
+        }
+
+        getSettingReactElement(setting) {
+            return ReactTools.getOwnerInstance(setting.getElement().children[0])
         }
 
         sendMuteWarnDisconnect(userId, reason, duration) {

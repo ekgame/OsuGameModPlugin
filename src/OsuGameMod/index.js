@@ -133,13 +133,13 @@ module.exports = (Plugin, Library) => {
                     actualDuration = actualDuration.trim();
                     if (!this.isValidDuration(actualDuration)) {
                         Modals.showAlertModal("Uh oh", "Invalid duration.");
-                        return false;
+                        throw new Error("plz dont close the modal");
                     }
 
                     reason = reason.trim();
                     if (!reason) {
                         Modals.showAlertModal("Uh oh", "The reason can not be empty.");
-                        return false;
+                        throw new Error("plz dont close the modal");
                     }
                     
                     this.sendMuteWarnDisconnect(userId, reason, actualDuration);
@@ -173,7 +173,7 @@ module.exports = (Plugin, Library) => {
                     reason = reason.trim();
                     if (!reason) {
                         Modals.showAlertModal("Uh oh", "The reason can not be empty.");
-                        return true;
+                        throw new Error("plz dont close the modal");
                     }
                     
                     this.sendWarn(userId, reason);

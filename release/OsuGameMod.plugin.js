@@ -120,6 +120,15 @@ module.exports = (() => {
         addCustomModerationMenuItems(items, userId) {
             items.push(DCM.buildMenuItem({type: "separator"}));
             items.push(DCM.buildMenuItem({
+                id: "warn",
+                type: "text", 
+                label: "Warn",
+                danger: true,
+                action: () => {
+                    this.showWarnModal(userId);
+                }
+            }));
+            items.push(DCM.buildMenuItem({
                 id: "custom-mute-and-warn",
                 type: "text", 
                 label: "Mute and warn",
@@ -201,6 +210,39 @@ module.exports = (() => {
             }, 100);
         }
 
+        showWarnModal(userId) {
+            const user = DiscordAPI.User.fromId(userId);
+            const userIdentifier = `${user.username}#${user.discriminator}`;
+
+            let reason = "";
+
+            const element = Settings.SettingPanel.build(
+                () => {},
+                new Settings.Textbox("Reason", null, reason, (e) => reason = e),
+            );
+
+            Modals.showModal(`Warn: ${userIdentifier}`, ReactTools.createWrappedElement(element), {
+                cancelText: "Cancel",
+                confirmText: "Warn",
+                size: Modals.ModalSizes.MEDIUM,
+                danger: true,
+                onConfirm: () => {
+                    reason = reason.trim();
+                    if (!reason) {
+                        Modals.showAlertModal("Uh oh", "The reason can not be empty.");
+                        return true;
+                    }
+                    
+                    this.sendWarn(userId, reason);
+                    console.log(`warning: ${userIdentifier}, reason: ${reason}`);
+                }
+            });
+
+            setTimeout(() => {
+                element.querySelector('input').focus();
+            }, 100);
+        }
+
         isValidDuration(duration) {
             const regex = /^([\d]+[smhdwy]{1})+$/;
             return regex.test(duration);
@@ -208,6 +250,11 @@ module.exports = (() => {
 
         getSettingReactElement(setting) {
             return ReactTools.getOwnerInstance(setting.getElement().children[0])
+        }
+
+        sendWarn(userId, reason) {
+            const channel = this.getModerationChannel();
+            channel.sendMessage(`!warn <@${userId}> ${reason}`);
         }
 
         sendMuteWarnDisconnect(userId, reason, duration) {

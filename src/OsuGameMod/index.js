@@ -1,6 +1,6 @@
 module.exports = (Plugin, Library) => {
 
-    const {Patcher, Settings, WebpackModules, DCM, Utilities, DiscordAPI, Modals, ReactTools} = Library;
+    const {Patcher, Settings, WebpackModules, DCM, Utilities, DiscordModules, Modals, ReactTools} = Library;
 
     function isObject(item) {
         return typeof item === 'object' && item !== null;
@@ -16,7 +16,7 @@ module.exports = (Plugin, Library) => {
             array.splice(index, 1);
         }
         return array;
-      }
+    }
 
     return class OsuGameModPlugin extends Plugin {
         constructor() {
@@ -28,7 +28,6 @@ module.exports = (Plugin, Library) => {
         }
 
         async onStart() {
-            this.GuildActions = WebpackModules.getByProps("requestMembers");
             this.addGuildUserContextMenuPatch();
         }
 
@@ -83,7 +82,7 @@ module.exports = (Plugin, Library) => {
         }
 
         showMuteAndWarnModal(userId) {
-            const user = DiscordAPI.User.fromId(userId);
+            const user = DiscordModules.UserStore.getUser(userId);
             const userIdentifier = `${user.username}#${user.discriminator}`;
 
             let reason = "";
@@ -101,7 +100,7 @@ module.exports = (Plugin, Library) => {
             const element = Settings.SettingPanel.build(
                 () => {},
                 new Settings.Textbox("Reason", null, reason, (e) => reason = e),
-                new Settings.RadioGroup("Mute Duration", "Example", duration, [
+                new Settings.RadioGroup("Mute Duration", "", duration, [
                     { color: "#000000", value: "999y", name: "Indefinite", desc: "Racial slurs, streaming porn/hentai/gore, anything immediatly bannable."},
                     { color: "#FF0000", value: "14d", name: "14 Days", desc: "Ear rape, mic spam, hostile or aggressive behavior, sexism."},
                     { color: "#FF8000", value: "2d", name: "2 Days", desc: "Leave/Join spam, minor infractions."},
@@ -154,7 +153,7 @@ module.exports = (Plugin, Library) => {
         }
 
         showWarnModal(userId) {
-            const user = DiscordAPI.User.fromId(userId);
+            const user = DiscordModules.UserStore.getUser(userId);
             const userIdentifier = `${user.username}#${user.discriminator}`;
 
             let reason = "";
@@ -197,14 +196,29 @@ module.exports = (Plugin, Library) => {
 
         sendWarn(userId, reason) {
             const channel = this.getModerationChannel();
-            channel.sendMessage(`!warn <@${userId}> ${reason}`);
+            if (!channel) {
+                return;
+            }
+            this.sendMessage(channel.id, `!warn <@${userId}> ${reason}`);
         }
 
         sendMuteWarnDisconnect(userId, reason, duration) {
             const channel = this.getModerationChannel();
-            channel.sendMessage(`?mute <@${userId}> ${duration} ${reason}`);
-            channel.sendMessage(`!warn <@${userId}> ${reason} [vc mute ${duration}]`);
-            this.GuildActions.setChannel(this.settings.guildId, userId, null);
+            if (!channel) {
+                return;
+            }
+            this.sendMessage(channel.id, `?mute <@${userId}> ${duration} ${reason}`);
+            this.sendMessage(channel.id, `!warn <@${userId}> ${reason} [vc mute ${duration}]`);
+            DiscordModules.GuildActions.setChannel(this.settings.guildId, userId, null);
+        }
+
+        sendMessage(channelId, textMessage) {
+            DiscordModules.MessageActions.sendMessage(channelId, {
+                content: textMessage,
+                invalidEmojis: [],
+                tts: false,
+                validNonShortcutEmojis: [],
+            });
         }
 
         removeStandardModerationItems(items) {
@@ -222,9 +236,7 @@ module.exports = (Plugin, Library) => {
         }
 
         getModerationChannel() {
-            const channel = DiscordAPI.Channel.fromId(this.settings.commandChannelId);
-            channel.assertPermissions = false;
-            return channel;
+            return DiscordModules.ChannelStore.getChannel(this.settings.commandChannelId);
         }
 
         getSettingsPanel() {

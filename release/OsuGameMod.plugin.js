@@ -32,7 +32,7 @@
 @else@*/
 
 module.exports = (() => {
-    const config = {"info":{"name":"osu!game Mod Utils","authors":[{"name":"ekgame","discord_id":"90354442913742848","github_username":"ekgame","twitter_username":"ekgame_"}],"version":"1.1.0","description":"Utilities for moderating osu!game server.","github":"https://github.com/ekgame/OsuGameModPlugin","github_raw":"https://raw.githubusercontent.com/ekgame/OsuGameModPlugin/master/release/OsuGameMod.plugin.js"},"main":"index.js"};
+    const config = {"info":{"name":"osu!game Mod Utils","authors":[{"name":"ekgame","discord_id":"90354442913742848","github_username":"ekgame","twitter_username":"ekgame_"}],"version":"1.2.0","description":"Utilities for moderating osu!game server.","github":"https://github.com/ekgame/OsuGameModPlugin","github_raw":"https://raw.githubusercontent.com/ekgame/OsuGameModPlugin/master/release/OsuGameMod.plugin.js"},"main":"index.js"};
 
     return !global.ZeresPluginLibrary ? class {
         constructor() {this._config = config;}
@@ -57,7 +57,7 @@ module.exports = (() => {
     } : (([Plugin, Api]) => {
         const plugin = (Plugin, Library) => {
 
-    const {Patcher, Settings, WebpackModules, DCM, Utilities, DiscordAPI, Modals, ReactTools} = Library;
+    const {Patcher, Settings, WebpackModules, DCM, Utilities, DiscordModules, Modals, ReactTools} = Library;
 
     function isObject(item) {
         return typeof item === 'object' && item !== null;
@@ -73,7 +73,7 @@ module.exports = (() => {
             array.splice(index, 1);
         }
         return array;
-      }
+    }
 
     return class OsuGameModPlugin extends Plugin {
         constructor() {
@@ -85,7 +85,6 @@ module.exports = (() => {
         }
 
         async onStart() {
-            this.GuildActions = WebpackModules.getByProps("requestMembers");
             this.addGuildUserContextMenuPatch();
         }
 
@@ -140,7 +139,7 @@ module.exports = (() => {
         }
 
         showMuteAndWarnModal(userId) {
-            const user = DiscordAPI.User.fromId(userId);
+            const user = DiscordModules.UserStore.getUser(userId);
             const userIdentifier = `${user.username}#${user.discriminator}`;
 
             let reason = "";
@@ -158,7 +157,7 @@ module.exports = (() => {
             const element = Settings.SettingPanel.build(
                 () => {},
                 new Settings.Textbox("Reason", null, reason, (e) => reason = e),
-                new Settings.RadioGroup("Mute Duration", "Example", duration, [
+                new Settings.RadioGroup("Mute Duration", "", duration, [
                     { color: "#000000", value: "999y", name: "Indefinite", desc: "Racial slurs, streaming porn/hentai/gore, anything immediatly bannable."},
                     { color: "#FF0000", value: "14d", name: "14 Days", desc: "Ear rape, mic spam, hostile or aggressive behavior, sexism."},
                     { color: "#FF8000", value: "2d", name: "2 Days", desc: "Leave/Join spam, minor infractions."},
@@ -211,7 +210,7 @@ module.exports = (() => {
         }
 
         showWarnModal(userId) {
-            const user = DiscordAPI.User.fromId(userId);
+            const user = DiscordModules.UserStore.getUser(userId);
             const userIdentifier = `${user.username}#${user.discriminator}`;
 
             let reason = "";
@@ -254,14 +253,29 @@ module.exports = (() => {
 
         sendWarn(userId, reason) {
             const channel = this.getModerationChannel();
-            channel.sendMessage(`!warn <@${userId}> ${reason}`);
+            if (!channel) {
+                return;
+            }
+            this.sendMessage(channel.id, `!warn <@${userId}> ${reason}`);
         }
 
         sendMuteWarnDisconnect(userId, reason, duration) {
             const channel = this.getModerationChannel();
-            channel.sendMessage(`?mute <@${userId}> ${duration} ${reason}`);
-            channel.sendMessage(`!warn <@${userId}> ${reason} [vc mute ${duration}]`);
-            this.GuildActions.setChannel(this.settings.guildId, userId, null);
+            if (!channel) {
+                return;
+            }
+            this.sendMessage(channel.id, `?mute <@${userId}> ${duration} ${reason}`);
+            this.sendMessage(channel.id, `!warn <@${userId}> ${reason} [vc mute ${duration}]`);
+            DiscordModules.GuildActions.setChannel(this.settings.guildId, userId, null);
+        }
+
+        sendMessage(channelId, textMessage) {
+            DiscordModules.MessageActions.sendMessage(channelId, {
+                content: textMessage,
+                invalidEmojis: [],
+                tts: false,
+                validNonShortcutEmojis: [],
+            });
         }
 
         removeStandardModerationItems(items) {
@@ -279,9 +293,7 @@ module.exports = (() => {
         }
 
         getModerationChannel() {
-            const channel = DiscordAPI.Channel.fromId(this.settings.commandChannelId);
-            channel.assertPermissions = false;
-            return channel;
+            return DiscordModules.ChannelStore.getChannel(this.settings.commandChannelId);
         }
 
         getSettingsPanel() {

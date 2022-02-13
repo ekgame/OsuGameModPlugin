@@ -1,6 +1,8 @@
 module.exports = (Plugin, Library) => {
 
-    const {Patcher, Settings, WebpackModules, DCM, Utilities, DiscordModules, Modals, ReactTools} = Library;
+    const {Patcher, Logger, Settings, WebpackModules, DCM, Utilities, DiscordModules, Modals, ReactTools} = Library;
+
+    window.WebpackModules = WebpackModules;
 
     function isObject(item) {
         return typeof item === 'object' && item !== null;
@@ -28,31 +30,86 @@ module.exports = (Plugin, Library) => {
         }
 
         async onStart() {
-            this.addGuildUserContextMenuPatch();
+            this.promises = {state: {cancelled: false}, cancel() {this.state.cancelled = true;}};
+            Utilities.suppressErrors(this.patchUserContextMenu.bind(this), "UserContextMenu patch")();
         }
 
         onStop() {
+            this.promises.cancel();
             Patcher.unpatchAll();
         }
 
-        addGuildUserContextMenuPatch() {
-            const GuildChannelUserContextMenu = WebpackModules.getModule(m => m.default && m.default.displayName == "GuildChannelUserContextMenu");
-            Patcher.after(GuildChannelUserContextMenu, "default", (component, args, retVal) => {
-                const { guildId, user } = args[0];
-                const items = retVal.props.children.props.children;
+        filterContext(name) {
+            const shouldInclude = ["page", "section", "objectType"];
+            const notInclude = ["use", "root"];
+            const isRegex = name instanceof RegExp;
 
-                // The custom moderation items should only be available for the configured server 
-                // and if you have the permissions to mute that user
-                if (guildId !== this.settings.guildId) {
-                    return;
+            return (module) => {
+                const string = module.toString({});
+                const getDisplayName = () => Utilities.getNestedProp(module({}), "props.children.type.displayName");
+
+                return !~string.indexOf("return function")
+                    && shouldInclude.every(s => ~string.indexOf(s))
+                    && !notInclude.every(s => ~string.indexOf(s))
+                    && (isRegex ? name.test(getDisplayName()) : name === getDisplayName())
+            }
+        }
+
+        async patchUserContextMenu() {
+            // No idea how any of this works, but it somehow patches the right click menu.
+            // Stole it from the "Copier" plugin: https://github.com/Strencher/BetterDiscordStuff/tree/master/Copier
+            // Can't wait for it to break again.
+
+            const patched = new WeakSet();
+            const REGEX = /user.*contextmenu/i;
+            const filter = this.filterContext(REGEX);
+            const self = this;
+            const loop = async () => {
+                const UserContextMenu = await DCM.getDiscordMenu(m => {
+                    if (patched.has(m)) return false;
+                    if (m.displayName != null) return REGEX.test(m.displayName);
+                    return filter(m);
+                });
+
+                if (self.promises.cancelled) return;
+                
+                if (!UserContextMenu.default.displayName) {
+                    let original = null;
+                    function wrapper(props) {
+                        const rendered = original.call(self, props);
+  
+                        try {
+                            const childs = Utilities.findInReactTree(rendered, Array.isArray);
+                            const user = props.user || UserStore.getUser(props.channel?.getRecipientId?.());
+                            if (!childs || !user || childs.some(c => c && c.key === "copy-user")) return rendered;
+                            const guildId = props.guildId || null;
+                            if (guildId === self.settings.guildId) {
+                                self.addCustomModerationMenuItems(childs, user.id);
+                            }
+                        } catch (error) {
+                            cancel();
+                            Logger.error("Error in context menu patch:", error);
+                        }
+  
+                        return rendered;
+                    }
+  
+                    const cancel = Patcher.after(UserContextMenu, "default", (...args) => {
+                        const [, , ret] = args;
+                        const contextMenu = Utilities.getNestedProp(ret, "props.children");
+                        if (!contextMenu || typeof contextMenu.type !== "function") return;
+  
+                        original ??= contextMenu.type;
+                        wrapper.displayName ??= original.displayName;
+                        contextMenu.type = wrapper;
+                    });
                 }
 
-                this.addCustomModerationMenuItems(items, user.id);
+                patched.add(UserContextMenu.default);
+                loop();
+            };
 
-                if (this.settings.hideStandardMute) {
-                    this.removeStandardModerationItems(items);
-                }
-            });
+            loop();
         }
 
         checkIfMuteItemExists(items) {
@@ -60,6 +117,9 @@ module.exports = (Plugin, Library) => {
         }
 
         addCustomModerationMenuItems(items, userId) {
+            if (this.settings.hideStandardMute) {
+                this.removeStandardModerationItems(items);
+            }
             items.push(DCM.buildMenuItem({type: "separator"}));
             items.push(DCM.buildMenuItem({
                 id: "warn",

@@ -1,8 +1,9 @@
 module.exports = (Plugin, Library) => {
 
-    const {Patcher, Logger, Settings, WebpackModules, DCM, Utilities, DiscordModules, Modals, ReactTools} = Library;
+    const {Patcher, Logger, Settings, WebpackModules, DCM, DiscordModules, Modals, ReactTools} = Library;
 
     window.WebpackModules = WebpackModules;
+    const flush = new Set;
 
     function isObject(item) {
         return typeof item === 'object' && item !== null;
@@ -18,6 +19,80 @@ module.exports = (Plugin, Library) => {
             array.splice(index, 1);
         }
         return array;
+    }
+
+    class Utilities extends Library.Utilities {
+        static combine(...filters) {
+            return (...args) => filters.every(filter => filter(...args));
+        }
+    }
+
+    class ContextMenu {
+        static buildItem(item) {
+            if (item.children) {
+                if (Array.isArray(item.children)) item.children = this.buildItems(item.children);
+                else item.children = this.buildItem(item.children);
+            }
+
+            const id = (item.id ? item.id : item.label.toLowerCase().replace(/ /g, "-"))
+                + (item.children ? "" : "-submenu");
+
+            return React.createElement(MenuItem, {
+                ...item,
+                id: id,
+                key: id
+            });
+        }
+
+        static buildItems(items) {
+            return items.map(e => this.buildItem(e));
+        }
+
+        static buildMenu(items) {
+            return React.createElement(
+                MenuGroup,
+                {key: items[0].id},
+                this.buildItems(items)
+            );
+        }
+
+        static open(target, render) {return ContextMenuActions.openContextMenu(target, render);}
+
+        static close() {return ContextMenuActions.closeContextMenu();}
+
+        static async findContextMenu(displayName, filter = _ => true) {
+            const regex = new RegExp(displayName, "i");
+            const normalFilter = (exports) => exports && exports.default && regex.test(exports.default.displayName) && filter(exports.default);
+            const nestedFilter = (module) => regex.test(module.toString());
+
+            {
+                const normalCache = WebpackModules.getModule(Utilities.combine(normalFilter, (e) => filter(e.default)));
+                if (normalCache) return {type: "normal", module: normalCache};
+            }
+
+            {
+                const webpackId = Object.keys(WebpackModules.require.m).find(id => nestedFilter(WebpackModules.require.m[id]));
+                const nestedCache = webpackId !== undefined && WebpackModules.getByIndex(webpackId);
+                if (nestedCache && filter(nestedCache?.default)) return {type: "nested", module: nestedCache};
+            }
+
+            return new Promise((resolve) => {
+                const cancel = () => WebpackModules.removeListener(listener);
+                const listener = (exports, module) => {
+                    const normal = normalFilter(exports);
+                    const nested = nestedFilter(module);
+
+                    if ((!nested && !normal) || !filter(exports?.default)) return;
+
+                    resolve({type: normal ? "normal" : "nested", module: exports});
+                    WebpackModules.removeListener(listener);
+                    flush.delete(cancel);
+                };
+
+                WebpackModules.addListener(listener);
+                flush.add(cancel);
+            });
+        }
     }
 
     return class OsuGameModPlugin extends Plugin {
@@ -61,51 +136,87 @@ module.exports = (Plugin, Library) => {
             // Can't wait for it to break again.
 
             const patched = new WeakSet();
-            const REGEX = /user.*contextmenu/i;
-            const filter = this.filterContext(REGEX);
+            const Regex = /displayName="\S+?usercontextmenu./i;
+            const originalSymbol = Symbol("Copier Original");
             const self = this;
             const loop = async () => {
-                const UserContextMenu = await DCM.getDiscordMenu(m => {
-                    if (patched.has(m)) return false;
-                    if (m.displayName != null) return REGEX.test(m.displayName);
-                    return filter(m);
-                });
+                console.log("starting loop");
+                const UserContextMenu = await ContextMenu.findContextMenu(Regex, m => !patched.has(m));
+                console.log(UserContextMenu);
 
-                if (self.promises.cancelled) return;
-                
-                if (!UserContextMenu.default.displayName) {
-                    let original = null;
-                    function wrapper(props) {
-                        const rendered = original.call(self, props);
-  
-                        try {
-                            const childs = Utilities.findInReactTree(rendered, Array.isArray);
-                            const user = props.user || UserStore.getUser(props.channel?.getRecipientId?.());
-                            if (!childs || !user || childs.some(c => c && c.key === "copy-user")) return rendered;
-                            const guildId = props.guildId || null;
-                            if (guildId === self.settings.guildId) {
-                                self.addCustomModerationMenuItems(childs, user.id);
-                            }
-                        } catch (error) {
-                            cancel();
-                            Logger.error("Error in context menu patch:", error);
-                        }
-  
-                        return rendered;
+                if (this.promises.cancelled) return;
+                console.log("promise not canceled");
+
+                const patch = (rendered, props) => {
+                    const childs = Utilities.findInReactTree(rendered, Array.isArray);
+                    const user = props.user || UserStore.getUser(props.channel?.getRecipientId?.());
+                    if (!childs || !user || childs.some(c => c && c.key === "custom-mute-and-warn")) return rendered;
+                    console.log("adding to context menu (1)");
+                    console.log(childs);
+                    console.log(user);
+                    self.addCustomModerationMenuItems(childs, user.id);
+                };
+
+                function CopierDeepWrapperForDiscordsCoolAnalyticsWrappers(props) {
+                    const rendered = props[originalSymbol].call(this, props);
+
+                    try {
+                        patch(rendered, props);
+                    } catch (error) {
+                        Logger.error("Error in context menu patch:", error);
                     }
-  
-                    const cancel = Patcher.after(UserContextMenu, "default", (...args) => {
-                        const [, , ret] = args;
-                        const contextMenu = Utilities.getNestedProp(ret, "props.children");
-                        if (!contextMenu || typeof contextMenu.type !== "function") return;
-  
-                        original ??= contextMenu.type;
-                        wrapper.displayName ??= original.displayName;
-                        contextMenu.type = wrapper;
-                    });
+
+                    return rendered;
                 }
 
-                patched.add(UserContextMenu.default);
+                let original = null;
+                function CopierContextMenuWrapper(props, _, rendered) {
+                    rendered ??= original.call(this, props);
+
+                    try {
+                        if (rendered?.props?.children?.type?.displayName.indexOf("ContextMenu") > 0) {
+                            const child = rendered.props.children;
+                            child.props[originalSymbol] = child.type;
+                            CopierDeepWrapperForDiscordsCoolAnalyticsWrappers.displayName = child.type.displayName;
+                            child.type = CopierDeepWrapperForDiscordsCoolAnalyticsWrappers;
+                            return rendered;
+                        }
+
+                        patch(rendered, props);
+                    } catch (error) {
+                        cancel();
+                        Logger.error("Error in context menu patch:", error);
+                    }
+
+                    return rendered;
+                }
+
+                Patcher.after(UserContextMenu.module, "default", (_, [props], ret) => {
+                    debugger;
+                    console.log("running patcher");
+                    console.log(arguments);
+                    if (UserContextMenu.type === "normal") {
+                        const children = Utilities.findInReactTree(ret, Array.isArray)
+                        if (!Array.isArray(children)) return;
+        
+                        const {user} = props;
+                        console.log("adding to context menu (2)");
+                        console.log(children);
+                        console.log(user);
+                        self.addCustomModerationMenuItems(children, user.id);
+                    } else {
+                        const contextMenu = Utilities.getNestedProp(ret, "props.children");
+                        if (!contextMenu || typeof contextMenu.type !== "function") return;
+
+                        original ??= contextMenu.type;
+                        CopierContextMenuWrapper.displayName ??= original.displayName;
+                        contextMenu.type = CopierContextMenuWrapper;
+                    }
+                });
+
+                console.log("Adding patch");
+                patched.add(UserContextMenu.module.default);
+                console.log("Added patch");
                 loop();
             };
 

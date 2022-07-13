@@ -32,7 +32,7 @@
 @else@*/
 
 module.exports = (() => {
-    const config = {"info":{"name":"osu!game Mod Utils","authors":[{"name":"ekgame","discord_id":"90354442913742848","github_username":"ekgame","twitter_username":"ekgame_"}],"version":"1.3.0","description":"Utilities for moderating osu!game server.","github":"https://github.com/ekgame/OsuGameModPlugin","github_raw":"https://raw.githubusercontent.com/ekgame/OsuGameModPlugin/master/release/OsuGameMod.plugin.js"},"main":"index.js"};
+    const config = {"info":{"name":"osu!game Mod Utils","authors":[{"name":"ekgame","discord_id":"90354442913742848","github_username":"ekgame","twitter_username":"ekgame_"}],"version":"1.4.0","description":"Utilities for moderating osu!game server.","github":"https://github.com/ekgame/OsuGameModPlugin","github_raw":"https://raw.githubusercontent.com/ekgame/OsuGameModPlugin/master/release/OsuGameMod.plugin.js"},"main":"index.js"};
 
     return !global.ZeresPluginLibrary ? class {
         constructor() {this._config = config;}

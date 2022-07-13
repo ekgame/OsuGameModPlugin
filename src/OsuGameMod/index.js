@@ -1,6 +1,6 @@
 module.exports = (Plugin, Library) => {
 
-    const {Patcher, Logger, Settings, WebpackModules, DCM, DiscordModules, Modals, ReactTools} = Library;
+    const {Patcher, Logger, Settings, WebpackModules, DCM, DiscordModules, Modals, ReactTools, DOMTools} = Library;
 
     window.WebpackModules = WebpackModules;
     const flush = new Set;
@@ -140,20 +140,14 @@ module.exports = (Plugin, Library) => {
             const originalSymbol = Symbol("Copier Original");
             const self = this;
             const loop = async () => {
-                console.log("starting loop");
                 const UserContextMenu = await ContextMenu.findContextMenu(Regex, m => !patched.has(m));
-                console.log(UserContextMenu);
 
                 if (this.promises.cancelled) return;
-                console.log("promise not canceled");
 
                 const patch = (rendered, props) => {
                     const childs = Utilities.findInReactTree(rendered, Array.isArray);
                     const user = props.user || UserStore.getUser(props.channel?.getRecipientId?.());
                     if (!childs || !user || childs.some(c => c && c.key === "custom-mute-and-warn")) return rendered;
-                    console.log("adding to context menu (1)");
-                    console.log(childs);
-                    console.log(user);
                     self.addCustomModerationMenuItems(childs, user.id);
                 };
 
@@ -192,17 +186,11 @@ module.exports = (Plugin, Library) => {
                 }
 
                 Patcher.after(UserContextMenu.module, "default", (_, [props], ret) => {
-                    debugger;
-                    console.log("running patcher");
-                    console.log(arguments);
                     if (UserContextMenu.type === "normal") {
                         const children = Utilities.findInReactTree(ret, Array.isArray)
                         if (!Array.isArray(children)) return;
         
                         const {user} = props;
-                        console.log("adding to context menu (2)");
-                        console.log(children);
-                        console.log(user);
                         self.addCustomModerationMenuItems(children, user.id);
                     } else {
                         const contextMenu = Utilities.getNestedProp(ret, "props.children");
@@ -214,9 +202,7 @@ module.exports = (Plugin, Library) => {
                     }
                 });
 
-                console.log("Adding patch");
                 patched.add(UserContextMenu.module.default);
-                console.log("Added patch");
                 loop();
             };
 
@@ -268,14 +254,21 @@ module.exports = (Plugin, Library) => {
                 {disabled: true}
             );
 
+            const infractionNotes = [
+                '* Excessive use of slurs means using them constantly or in very racist/offensive ways. Inoffensive and apologetic use of slurs should be handled with a verbal warning first (a slip-up should not be acted on).',
+                '** Includes general toxicity, sexism, screaming etc.',
+                '*** Mic spam = constantly making random noises into the mic/other annoying things that are not earrape',
+            ].map(item => `<li style="margin-bottom: 8px;">${item}</li>`).join('\n');
+
             const element = Settings.SettingPanel.build(
                 () => {},
                 new Settings.Textbox("Reason", null, reason, (e) => reason = e),
-                new Settings.RadioGroup("Mute Duration", "", duration, [
-                    { color: "#000000", value: "999y", name: "Indefinite", desc: "Racial slurs, streaming porn/hentai/gore, anything immediatly bannable."},
-                    { color: "#FF0000", value: "14d", name: "14 Days", desc: "Ear rape, mic spam, hostile or aggressive behavior, sexism."},
-                    { color: "#FF8000", value: "2d", name: "2 Days", desc: "Leave/Join spam, minor infractions."},
-                    { color: "#FFFF00", value: "1h", name: "1 Hour", desc: "Excessive background noise, refusing to switch to push to talk."},
+                new Settings.RadioGroup("Mute Duration", '', duration, [
+                    { color: "#000000", value: "999y", name: "Indefinite", desc: "Excessive use of slurs*, streaming porn/hentai/gore, anything immediatelly bannable."},
+                    { color: "#ff0000", value: "14d", name: "14 Days", desc: "Excessive hostile/aggressive/toxic behavior**, slurs*."},
+                    { color: "#ff7800", value: "7d", name: "7 Days", desc: "Ear rape, uncomfortably hostile/aggressive/toxic behavior**."},
+                    { color: "#ffba00", value: "3d", name: "3 Days", desc: "Mic spam***, join/leave spam, acting in an exceedingly annoying way, minor infractions."},
+                    { color: "#fff600", value: "1h", name: "1 Hour", desc: "Annoying amount of background noise while refusing to use Push-To-Talk or noise suppression."},
                     { color: "#aaaaaa", value: "custom", name: "Custom", desc: "Mute goes brrr."},
                 ], (e) => {
                     duration = e;
@@ -290,6 +283,8 @@ module.exports = (Plugin, Library) => {
                         }, 100);
                     }
                 }),
+                DOMTools.parseHTML(`<ul style="color: var(--interactive-normal); font-size: 12px;">${infractionNotes}</ul>`),
+                DOMTools.parseHTML(`<hr style="margin: 20px 0; border: thin solid var(--background-modifier-accent);"/>`),
                 customDurationTextbox,
             );
 

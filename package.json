@@ -2,10 +2,13 @@
   "name": "discord-plugins",
   "version": "1.0.0",
   "description": "Discord plugins",
-  "main": "index.js",
   "scripts": {
-    "build": "cp config.json BDPluginLibrary/config.json && node ./BDPluginLibrary/scripts/build.js local && cp ./release/* $(wslpath \"$(wslvar USERPROFILE)\")/AppData/Roaming/BetterDiscord/plugins"
+    "build": "zpl build",
+    "init": "zpl init"
   },
   "author": "ekgame",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "zerespluginlibrary": "^2.0.6"
+  }
 }

@@ -1,9 +1,9 @@
 /**
- * @name OsuGameMod
- * @invite undefined
- * @authorLink undefined
- * @donate undefined
- * @patreon undefined
+ * @name osu!game Mod Utils
+ * @description Utilities for moderating osu!game server.
+ * @version 1.5.0
+ * @author ekgame
+ * @authorId 90354442913742848
  * @website https://github.com/ekgame/OsuGameModPlugin
  * @source https://raw.githubusercontent.com/ekgame/OsuGameModPlugin/master/release/OsuGameMod.plugin.js
  */
@@ -30,37 +30,56 @@
     WScript.Quit();
 
 @else@*/
-
-module.exports = (() => {
-    const config = {"info":{"name":"osu!game Mod Utils","authors":[{"name":"ekgame","discord_id":"90354442913742848","github_username":"ekgame","twitter_username":"ekgame_"}],"version":"1.4.0","description":"Utilities for moderating osu!game server.","github":"https://github.com/ekgame/OsuGameModPlugin","github_raw":"https://raw.githubusercontent.com/ekgame/OsuGameModPlugin/master/release/OsuGameMod.plugin.js"},"main":"index.js"};
-
-    return !global.ZeresPluginLibrary ? class {
-        constructor() {this._config = config;}
-        getName() {return config.info.name;}
-        getAuthor() {return config.info.authors.map(a => a.name).join(", ");}
-        getDescription() {return config.info.description;}
-        getVersion() {return config.info.version;}
-        load() {
-            BdApi.showConfirmationModal("Library Missing", `The library plugin needed for ${config.info.name} is missing. Please click Download Now to install it.`, {
-                confirmText: "Download Now",
-                cancelText: "Cancel",
-                onConfirm: () => {
-                    require("request").get("https://rauenzi.github.io/BDPluginLibrary/release/0PluginLibrary.plugin.js", async (error, response, body) => {
-                        if (error) return require("electron").shell.openExternal("https://betterdiscord.net/ghdl?url=https://raw.githubusercontent.com/rauenzi/BDPluginLibrary/master/release/0PluginLibrary.plugin.js");
-                        await new Promise(r => require("fs").writeFile(require("path").join(BdApi.Plugins.folder, "0PluginLibrary.plugin.js"), body, r));
+const config = {
+    info: {
+        name: "osu!game Mod Utils",
+        authors: [
+            {
+                name: "ekgame",
+                discord_id: "90354442913742848",
+                github_username: "ekgame",
+                twitter_username: "ekgame_"
+            }
+        ],
+        version: "1.5.0",
+        description: "Utilities for moderating osu!game server.",
+        github: "https://github.com/ekgame/OsuGameModPlugin",
+        github_raw: "https://raw.githubusercontent.com/ekgame/OsuGameModPlugin/master/release/OsuGameMod.plugin.js"
+    },
+    main: "index.js"
+};
+class Dummy {
+    constructor() {this._config = config;}
+    start() {}
+    stop() {}
+}
+ 
+if (!global.ZeresPluginLibrary) {
+    BdApi.showConfirmationModal("Library Missing", `The library plugin needed for ${config.name ?? config.info.name} is missing. Please click Download Now to install it.`, {
+        confirmText: "Download Now",
+        cancelText: "Cancel",
+        onConfirm: () => {
+            require("request").get("https://betterdiscord.app/gh-redirect?id=9", async (err, resp, body) => {
+                if (err) return require("electron").shell.openExternal("https://betterdiscord.app/Download?id=9");
+                if (resp.statusCode === 302) {
+                    require("request").get(resp.headers.location, async (error, response, content) => {
+                        if (error) return require("electron").shell.openExternal("https://betterdiscord.app/Download?id=9");
+                        await new Promise(r => require("fs").writeFile(require("path").join(BdApi.Plugins.folder, "0PluginLibrary.plugin.js"), content, r));
                     });
+                }
+                else {
+                    await new Promise(r => require("fs").writeFile(require("path").join(BdApi.Plugins.folder, "0PluginLibrary.plugin.js"), body, r));
                 }
             });
         }
-        start() {}
-        stop() {}
-    } : (([Plugin, Api]) => {
-        const plugin = (Plugin, Library) => {
+    });
+}
+ 
+module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
+     const plugin = (Plugin, Library) => {
 
-    const {Patcher, Logger, Settings, WebpackModules, DCM, DiscordModules, Modals, ReactTools, DOMTools} = Library;
-
-    window.WebpackModules = WebpackModules;
-    const flush = new Set;
+    const { Patcher, Logger, Settings, DCM, DiscordModules, Modals, ReactTools, DOMTools, Utilities } = Library;
+    const { ContextMenu } = new BdApi("OsuGameMod");
 
     function isObject(item) {
         return typeof item === 'object' && item !== null;
@@ -78,225 +97,64 @@ module.exports = (() => {
         return array;
     }
 
-    class Utilities extends Library.Utilities {
-        static combine(...filters) {
-            return (...args) => filters.every(filter => filter(...args));
-        }
-    }
-
-    class ContextMenu {
-        static buildItem(item) {
-            if (item.children) {
-                if (Array.isArray(item.children)) item.children = this.buildItems(item.children);
-                else item.children = this.buildItem(item.children);
-            }
-
-            const id = (item.id ? item.id : item.label.toLowerCase().replace(/ /g, "-"))
-                + (item.children ? "" : "-submenu");
-
-            return React.createElement(MenuItem, {
-                ...item,
-                id: id,
-                key: id
-            });
-        }
-
-        static buildItems(items) {
-            return items.map(e => this.buildItem(e));
-        }
-
-        static buildMenu(items) {
-            return React.createElement(
-                MenuGroup,
-                {key: items[0].id},
-                this.buildItems(items)
-            );
-        }
-
-        static open(target, render) {return ContextMenuActions.openContextMenu(target, render);}
-
-        static close() {return ContextMenuActions.closeContextMenu();}
-
-        static async findContextMenu(displayName, filter = _ => true) {
-            const regex = new RegExp(displayName, "i");
-            const normalFilter = (exports) => exports && exports.default && regex.test(exports.default.displayName) && filter(exports.default);
-            const nestedFilter = (module) => regex.test(module.toString());
-
-            {
-                const normalCache = WebpackModules.getModule(Utilities.combine(normalFilter, (e) => filter(e.default)));
-                if (normalCache) return {type: "normal", module: normalCache};
-            }
-
-            {
-                const webpackId = Object.keys(WebpackModules.require.m).find(id => nestedFilter(WebpackModules.require.m[id]));
-                const nestedCache = webpackId !== undefined && WebpackModules.getByIndex(webpackId);
-                if (nestedCache && filter(nestedCache?.default)) return {type: "nested", module: nestedCache};
-            }
-
-            return new Promise((resolve) => {
-                const cancel = () => WebpackModules.removeListener(listener);
-                const listener = (exports, module) => {
-                    const normal = normalFilter(exports);
-                    const nested = nestedFilter(module);
-
-                    if ((!nested && !normal) || !filter(exports?.default)) return;
-
-                    resolve({type: normal ? "normal" : "nested", module: exports});
-                    WebpackModules.removeListener(listener);
-                    flush.delete(cancel);
-                };
-
-                WebpackModules.addListener(listener);
-                flush.add(cancel);
-            });
-        }
-    }
-
     return class OsuGameModPlugin extends Plugin {
         constructor() {
             super();
             this.defaultSettings = {};
             this.defaultSettings.guildId = "98226572468690944";
             this.defaultSettings.commandChannelId = "158484765136125952";
-            this.defaultSettings.hideStandardMute = true;
         }
 
         async onStart() {
-            this.promises = {state: {cancelled: false}, cancel() {this.state.cancelled = true;}};
+            Logger.info(ContextMenu);
             Utilities.suppressErrors(this.patchUserContextMenu.bind(this), "UserContextMenu patch")();
         }
 
         onStop() {
-            this.promises.cancel();
             Patcher.unpatchAll();
         }
 
-        filterContext(name) {
-            const shouldInclude = ["page", "section", "objectType"];
-            const notInclude = ["use", "root"];
-            const isRegex = name instanceof RegExp;
-
-            return (module) => {
-                const string = module.toString({});
-                const getDisplayName = () => Utilities.getNestedProp(module({}), "props.children.type.displayName");
-
-                return !~string.indexOf("return function")
-                    && shouldInclude.every(s => ~string.indexOf(s))
-                    && !notInclude.every(s => ~string.indexOf(s))
-                    && (isRegex ? name.test(getDisplayName()) : name === getDisplayName())
-            }
-        }
-
         async patchUserContextMenu() {
-            // No idea how any of this works, but it somehow patches the right click menu.
-            // Stole it from the "Copier" plugin: https://github.com/Strencher/BetterDiscordStuff/tree/master/Copier
-            // Can't wait for it to break again.
-
-            const patched = new WeakSet();
-            const Regex = /displayName="\S+?usercontextmenu./i;
-            const originalSymbol = Symbol("Copier Original");
-            const self = this;
-            const loop = async () => {
-                const UserContextMenu = await ContextMenu.findContextMenu(Regex, m => !patched.has(m));
-
-                if (this.promises.cancelled) return;
-
-                const patch = (rendered, props) => {
-                    const childs = Utilities.findInReactTree(rendered, Array.isArray);
-                    const user = props.user || UserStore.getUser(props.channel?.getRecipientId?.());
-                    if (!childs || !user || childs.some(c => c && c.key === "custom-mute-and-warn")) return rendered;
-                    self.addCustomModerationMenuItems(childs, user.id);
-                };
-
-                function CopierDeepWrapperForDiscordsCoolAnalyticsWrappers(props) {
-                    const rendered = props[originalSymbol].call(this, props);
-
-                    try {
-                        patch(rendered, props);
-                    } catch (error) {
-                        Logger.error("Error in context menu patch:", error);
-                    }
-
-                    return rendered;
+            ContextMenu.patch("user-context", (returnValue, props) => {
+                if(!returnValue) {
+                    return;
                 }
 
-                let original = null;
-                function CopierContextMenuWrapper(props, _, rendered) {
-                    rendered ??= original.call(this, props);
-
-                    try {
-                        if (rendered?.props?.children?.type?.displayName.indexOf("ContextMenu") > 0) {
-                            const child = rendered.props.children;
-                            child.props[originalSymbol] = child.type;
-                            CopierDeepWrapperForDiscordsCoolAnalyticsWrappers.displayName = child.type.displayName;
-                            child.type = CopierDeepWrapperForDiscordsCoolAnalyticsWrappers;
-                            return rendered;
-                        }
-
-                        patch(rendered, props);
-                    } catch (error) {
-                        cancel();
-                        Logger.error("Error in context menu patch:", error);
-                    }
-
-                    return rendered;
+                if (!props.guildId || !props.user || props.guildId != this.settings.guildId) {
+                    return;
                 }
-
-                Patcher.after(UserContextMenu.module, "default", (_, [props], ret) => {
-                    if (UserContextMenu.type === "normal") {
-                        const children = Utilities.findInReactTree(ret, Array.isArray)
-                        if (!Array.isArray(children)) return;
-        
-                        const {user} = props;
-                        self.addCustomModerationMenuItems(children, user.id);
-                    } else {
-                        const contextMenu = Utilities.getNestedProp(ret, "props.children");
-                        if (!contextMenu || typeof contextMenu.type !== "function") return;
-
-                        original ??= contextMenu.type;
-                        CopierContextMenuWrapper.displayName ??= original.displayName;
-                        contextMenu.type = CopierContextMenuWrapper;
-                    }
-                });
-
-                patched.add(UserContextMenu.module.default);
-                loop();
-            };
-
-            loop();
+                Logger.info(props.user);
+                this.addCustomModerationMenuItems(returnValue.props.children, props.user);
+            })
         }
 
         checkIfMuteItemExists(items) {
             return Utilities.findInReactTree(items, item => getPotentialObjectProperty(item, 'key') === 'voice-mute');
         }
 
-        addCustomModerationMenuItems(items, userId) {
-            if (this.settings.hideStandardMute) {
-                this.removeStandardModerationItems(items);
-            }
-            items.push(DCM.buildMenuItem({type: "separator"}));
-            items.push(DCM.buildMenuItem({
+        addCustomModerationMenuItems(items, user) {
+            items.push(ContextMenu.buildItem({type: "separator"}));
+            items.push(ContextMenu.buildItem({
                 id: "warn",
                 type: "text", 
                 label: "Warn",
                 danger: true,
                 action: () => {
-                    this.showWarnModal(userId);
+                    this.showWarnModal(user);
                 }
             }));
-            items.push(DCM.buildMenuItem({
+            items.push(ContextMenu.buildItem({
                 id: "custom-mute-and-warn",
                 type: "text", 
                 label: "Mute and warn",
                 danger: true,
                 action: () => {
-                    this.showMuteAndWarnModal(userId);
+                    this.showMuteAndWarnModal(user);
                 }
             }));
         }
 
-        showMuteAndWarnModal(userId) {
-            const user = DiscordModules.UserStore.getUser(userId);
+        showMuteAndWarnModal(user) {
             const userIdentifier = `${user.username}#${user.discriminator}`;
 
             let reason = "";
@@ -340,7 +198,7 @@ module.exports = (() => {
                         }, 100);
                     }
                 }),
-                DOMTools.parseHTML(`<ul style="color: var(--interactive-normal); font-size: 12px;">${infractionNotes}</ul>`),
+                DOMTools.parseHTML(`<ul style="color: var(--interactive-normal); font-size: 12px; margin-top: 20px">${infractionNotes}</ul>`),
                 DOMTools.parseHTML(`<hr style="margin: 20px 0; border: thin solid var(--background-modifier-accent);"/>`),
                 customDurationTextbox,
             );
@@ -364,8 +222,8 @@ module.exports = (() => {
                         throw new Error("plz dont close the modal");
                     }
                     
-                    this.sendMuteWarnDisconnect(userId, reason, actualDuration);
-                    console.log(`muting and warning: ${userIdentifier}, reason: ${reason}, duration: ${duration}`);
+                    this.sendMuteWarnDisconnect(user.id, reason, actualDuration);
+                    Logger.info(`muting and warning: ${userIdentifier}, reason: ${reason}, duration: ${duration}`);
                 }
             });
 
@@ -375,8 +233,7 @@ module.exports = (() => {
             }, 100);
         }
 
-        showWarnModal(userId) {
-            const user = DiscordModules.UserStore.getUser(userId);
+        showWarnModal(user) {
             const userIdentifier = `${user.username}#${user.discriminator}`;
 
             let reason = "";
@@ -398,8 +255,8 @@ module.exports = (() => {
                         throw new Error("plz dont close the modal");
                     }
                     
-                    this.sendWarn(userId, reason);
-                    console.log(`warning: ${userIdentifier}, reason: ${reason}`);
+                    this.sendWarn(user.id, reason);
+                    Logger.info(`warning: ${userIdentifier}, reason: ${reason}`);
                 }
             });
 
@@ -444,20 +301,6 @@ module.exports = (() => {
             });
         }
 
-        removeStandardModerationItems(items) {
-            const muteItem = Utilities.findInReactTree(items, item => getPotentialObjectProperty(item, 'key') === 'voice-mute');
-            const deafenItem = Utilities.findInReactTree(items, item => getPotentialObjectProperty(item, 'key') === 'voice-deafen');
-
-            for (const group of items) {
-                const props = getPotentialObjectProperty(group, 'props');
-                if (props && Array.isArray(props.children)) {
-                    const children = props.children;
-                    arrayRemoveItem(children, muteItem);
-                    arrayRemoveItem(children, deafenItem);
-                }
-            }
-        }
-
         getModerationChannel() {
             return DiscordModules.ChannelStore.getChannel(this.settings.commandChannelId);
         }
@@ -477,17 +320,10 @@ module.exports = (() => {
                     this.settings.commandChannelId,
                     (e) => this.settings.commandChannelId = e
                 ),
-                new Settings.Switch(
-                    "Hide standard voice chat \"Server Mute/Deafen\" toggles", 
-                    "It's not recommended to use the standard toggles. If enabled, they will be hidden for the server.", 
-                    this.settings.hideStandardMute,
-                    (e) => this.settings.hideStandardMute = e
-                ),
             );
         }
     };
 };
-        return plugin(Plugin, Api);
-    })(global.ZeresPluginLibrary.buildPlugin(config));
-})();
+     return plugin(Plugin, Api);
+})(global.ZeresPluginLibrary.buildPlugin(config));
 /*@end@*/
